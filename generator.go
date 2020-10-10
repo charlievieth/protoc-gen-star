@@ -4,6 +4,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"regexp"
 )
 
 // Generator configures and executes a protoc plugin's lifecycle.
@@ -75,6 +76,8 @@ func (g *Generator) AST() AST {
 	return g.workflow.Init(g)
 }
 
+var skipFileRe = regexp.MustCompile(`(/|^)[[:alnum:]]+\.pb\.go$`)
+
 // Render executes the protoc plugin flow, gathering the AST from the input
 // io.Reader (typically stdin via protoc), running all the registered modules,
 // and persisting the generated artifacts to the output io.Writer (typically
@@ -84,6 +87,20 @@ func (g *Generator) AST() AST {
 func (g *Generator) Render() {
 	ast := g.workflow.Init(g)
 	arts := g.workflow.Run(ast)
+
+	x := arts[:0]
+	for _, a := range arts {
+		if v, ok := a.(GeneratorArtifact); ok {
+			if f, err := v.ProtoFile(); err == nil && f != nil {
+				if !skipFileRe.MatchString(f.GetName()) {
+					g.Logf("skipping file: %q", f.GetName())
+					x = append(x, a)
+				}
+			}
+		}
+	}
+	arts = x
+
 	g.workflow.Persist(arts)
 }
 
